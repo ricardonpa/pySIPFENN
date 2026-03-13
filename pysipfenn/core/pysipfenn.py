@@ -11,7 +11,7 @@ from importlib.resources import files as resources_files, as_file
 from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map
 import natsort
-from pysmartdl2 import SmartDL
+import urllib.request
 from colorama import Fore, Style
 
 # Scientific Computing Imports
@@ -248,21 +248,21 @@ class Calculator:
             # Fetch all
             if network == 'all':
                 print('Fetching all networks!')
-                downloadableNets = [net for net in self.network_list if 'URL_ONNX' in self.models[net]]
+                downloadableNets = [net for net in self.network_list
+                                    if 'URL_ONNX' in self.models[net]]
                 for net in self.network_list:
                     if net not in self.network_list_available:
                         if 'URL_ONNX' in self.models[net]:
                             print(f'Fetching: {net}')
-                            downloadObject = SmartDL(self.models[net]['URL_ONNX'],
-                                                     f'{modelPath}/{net}.onnx',
-                                                     threads=16)
-                            downloadObject.start()
+                            url = self.models[net]['URL_ONNX']
+                            dst = f'{modelPath}/{net}.onnx'
+                            urlretrieve_with_tqdm(url, dst, desc=net)
                             print('\nONNX Network Successfully Fetched.')
                         else:
                             print(f'{net} not detected on disk and ONNX URL has not been provided.')
                     else:
                         print(f'{net} detected on disk. Ready to use.')
-                if downloadableNets == self.network_list_available:                
+                if downloadableNets == self.network_list_available:
                     print('All downloadable networks are now available!')
                 else:
                     print('Problem occurred.')
@@ -270,10 +270,9 @@ class Calculator:
             # Fetch single
             elif network in self.network_list:
                 print(f'Fetching: {network}')
-                downloadObject = SmartDL(self.models[network]['URL_ONNX'],
-                                         f'{modelPath}/{network}.onnx',
-                                         threads=16)
-                downloadObject.start()
+                url = self.models[network]['URL_ONNX']
+                dst = f'{modelPath}/{network}.onnx'
+                urlretrieve_with_tqdm(url, dst, desc=network)
                 print('\nONNX Network Successfully Fetched.')
             # Not recognized
             else:
@@ -1218,6 +1217,28 @@ def string2prototype(c: Calculator, prototype: str) -> Structure:
     s: Structure = c.prototypeLibrary[prototype]['structure']
     assert s.is_valid(), f'Invalid structure: {s}'
     return s
+
+def urlretrieve_with_tqdm(url: str, dst: str, desc: str) -> None:
+    # reporthook signature: (block_num, block_size, total_size)
+    pbar = {'obj': None}
+
+    def _hook(block_num, block_size, total_size):
+        if pbar['obj'] is None:
+            # total_size may be -1 if unknown
+            pbar['obj'] = tqdm(
+                total=total_size if total_size > 0 else None,
+                unit='B',
+                unit_scale=True,
+                unit_divisor=1024,
+                desc=desc,
+            )
+        downloaded = block_num * block_size
+        pbar['obj'].n = downloaded
+        pbar['obj'].refresh()
+        if total_size > 0 and downloaded >= total_size:
+            pbar['obj'].close()
+
+    urllib.request.urlretrieve(url, dst, _hook)
 
 # *** WRAPPERS ***
 def wrapper_KS2022_dilute_generate_descriptor(args):
